@@ -10,7 +10,7 @@ Tests:
 """
 
 import sys
-sys.path.insert(0, "/home/claude/synthe")
+sys.path.insert(0, "/home/kael/synthe")
 
 import torch
 import torch.nn as nn
@@ -220,9 +220,9 @@ def test_gradient_flow():
         loss = out.sum()
         loss.backward()
 
-        grad_norm = x.grad.norm().item()
+        grad_norm = x.grad.norm().item() if x.grad is not None else 0.0
         has_grad = all(
-            p.grad is not None and p.grad.norm() > 0
+            (p.grad is not None and p.grad.norm() > 0)
             for p in layer.parameters()
             if p.requires_grad
         )
@@ -276,15 +276,15 @@ def test_param_count():
     print("=" * 60)
 
     configs = [
-        ("60M target", 512, 256, 8),
-        ("125M target", 768, 384, 12),
-        ("350M target", 1024, 512, 16),
+        ("60M target", 512, 256, 64, 8),
+        ("125M target", 768, 384, 64, 12),
+        ("350M target", 1024, 512, 96, 16),
     ]
 
-    for name, d_model, state_dim, n_heads in configs:
+    for name, d_model, state_dim, kalman_sd, n_heads in configs:
         delta = DeltaLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
         momentum = MomentumLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
-        kalman = KalmanLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
+        kalman = KalmanLayer(d_model=d_model, state_dim=kalman_sd, n_heads=n_heads)
         probe = AttentionProbe(d_model=d_model, n_heads=n_heads, always_on=True)
 
         total = sum(
@@ -292,7 +292,7 @@ def test_param_count():
             for l in [delta, momentum, kalman, probe]
         )
 
-        print(f"  {name:15s} (d={d_model}, sd={state_dim}, h={n_heads})")
+        print(f"  {name:15s} (d={d_model}, sd={state_dim}, ksd={kalman_sd}, h={n_heads})")
         print(f"    Delta:    {sum(p.numel() for p in delta.parameters()):>10,}")
         print(f"    Momentum: {sum(p.numel() for p in momentum.parameters()):>10,}")
         print(f"    Kalman:   {sum(p.numel() for p in kalman.parameters()):>10,}")

@@ -1,0 +1,16 @@
+# Core dependencies
+torch>=2.1.0
+einops>=0.7.0
+pyyaml>=6.0
+
+# Training (optional)
+# datasets>=2.14.0
+# wandb>=0.16.0
+# tqdm>=4.66.0
+
+# Evaluation (optional)
+# lm-eval>=0.4.0
+
+# Development
+# pytest>=7.0
+# pytest-benchmark

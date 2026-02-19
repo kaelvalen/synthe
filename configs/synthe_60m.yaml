@@ -1,0 +1,22 @@
+# SYNTHE 60M — Zoology benchmark config
+# Target: RTX 5060 Mobile (8GB VRAM)
+d_model: 512
+n_blocks: 8
+vocab_size: 32000
+state_dim: 128
+kalman_state_dim: 64
+n_heads: 8
+ffn_expand: 2.67
+tier1_dim: 256
+tier2_dim: 128
+tier3_dim: 64
+tier2_interval: 16
+tier3_interval: 128
+router_hidden: 64
+min_depth: 2
+exit_threshold: 0.5
+probe_threshold: 0.35
+probe_window: 256
+dropout: 0.0
+max_seq_len: 2048
+tie_embeddings: true

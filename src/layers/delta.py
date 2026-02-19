@@ -130,6 +130,7 @@ class DeltaLayer(SyntheLayer):
         beta = self.beta_min + (self.beta_max - self.beta_min) * torch.sigmoid(beta)
 
         # Optional forget gate
+        gate = None
         if self.use_gate:
             gate = torch.sigmoid(self.W_gate(x_norm))  # (B, T, n_heads)
 
@@ -164,7 +165,7 @@ class DeltaLayer(SyntheLayer):
             surprise_accum = surprise_accum + surprise_t
 
             # Apply forget gate before update
-            if self.use_gate:
+            if self.use_gate and gate is not None:
                 gate_t = gate[:, t]  # (B, h)
                 S = S * gate_t.unsqueeze(-1).unsqueeze(-1)
 

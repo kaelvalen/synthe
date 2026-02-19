@@ -201,7 +201,7 @@ synthe_block:
   attention_probe:
     enabled: true
     window_size: 256
-    trigger: confidence < 0.3
+    trigger: confidence < 0.35  # Innovation-based (IOR)
 ```
 
 ---
@@ -292,65 +292,69 @@ synthe_block:
 
 ---
 
-## File Structure (Planned)
+## File Structure
 
 ```
 synthe/
 ├── README.md
-├── PARADIGM.md              # This document
+├── SYNTHE_PARADIGM.md       # This document
+├── why.md                   # Research landscape analysis
+├── LICENSE
+├── pyproject.toml
 ├── src/
 │   ├── layers/
-│   │   ├── momentum.py      # Gated EMA / RWKV-style
-│   │   ├── delta.py         # Delta rule layer
-│   │   ├── kalman.py        # Kalman estimation layer
-│   │   └── attention.py     # Sparse attention probe
+│   │   ├── base.py          # SyntheLayer ABC + LayerState
+│   │   ├── momentum.py      # Gated EMA / RWKV-style          ✓
+│   │   ├── delta.py         # Delta rule associative memory    ✓
+│   │   ├── kalman.py        # Kalman filter + IOR confidence   ✓
+│   │   └── attention.py     # Conditional attention probe      ✓
 │   ├── memory/
-│   │   ├── tier1_token.py   # Fast token-level memory
-│   │   ├── tier2_sentence.py # Medium sentence-level
-│   │   ├── tier3_discourse.py # Slow discourse-level
-│   │   └── hub.py           # Memory hub + consolidation
+│   │   └── hub.py           # 3-tier temporal memory hub       ✓
 │   ├── routing/
-│   │   └── depth_router.py  # Dynamic computation depth
-│   ├── model/
-│   │   ├── block.py         # SYNTHE block
-│   │   └── synthe.py        # Full model
-│   ├── training/
-│   │   ├── trainer.py       # Training loop
-│   │   └── progressive.py   # Progressive training strategy
-│   └── eval/
-│       ├── zoology.py       # Synthetic benchmarks
-│       └── lm_eval.py       # Language model evaluation
+│   │   └── depth_router.py  # Dynamic computation depth        ✓
+│   └── model/
+│       ├── block.py         # SYNTHE block (composable unit)   ✓
+│       └── synthe.py        # Full model + generation          ✓
 ├── configs/
-│   ├── synthe_60m.yaml      # PoC config
-│   ├── synthe_125m.yaml     # Small config
-│   └── synthe_350m.yaml     # Medium config
+│   └── synthe_60m.yaml      # 60M config for RTX 5060 Mobile
 ├── scripts/
-│   ├── train.py
-│   ├── eval.py
-│   └── benchmark.py
-└── docs/
-    ├── ARCHITECTURE.md
-    ├── MEMORY_SYSTEM.md
-    └── SCALING.md
+│   └── train.py             # Training loop
+└── tests/
+    ├── test_layers.py       # Layer validation suite           ✓
+    ├── test_model.py        # Full model integration tests     ✓
+    └── test_probe_fire.py   # Probe activation diagnostic      ✓
 ```
 
 ---
 
+## Implementation Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| MomentumLayer | ✅ Done | Gated EMA + ParallelMomentum variant |
+| DeltaLayer | ✅ Done | Full delta rule + ChunkedDelta variant |
+| KalmanLayer | ✅ Done | Diagonal Kalman + IOR confidence + fused projections |
+| AttentionProbe | ✅ Done | Conditional sliding-window, confidence-gated |
+| TemporalMemoryHub | ✅ Done | 3-tier with bidirectional flow |
+| DepthRouter | ✅ Done | Continuous routing with early exit |
+| SyntheBlock | ✅ Done | Momentum→Delta→Kalman→FFN→Probe composition |
+| Full Model | ✅ Done | Config presets, generation, state streaming |
+| Test Suite | ✅ Done | Layers + integration + probe diagnostics |
+| Training Script | ✅ Done | Tiny Shakespeare + custom data support |
+| Zoology Benchmarks | 🔲 Next | MQAR, copying, state tracking |
+| C4 Pretraining | 🔲 Planned | 125M-350M scale |
+| lm-eval Zero-shot | 🔲 Planned | MMLU, HellaSwag, ARC, GSM8K |
+
 ## Next Steps
 
-**Immediate (this session):**
-1. Decide on framework (PyTorch vs JAX) 
-2. Decide on first layer to implement (recommended: Delta layer — highest novelty + recall is the key bottleneck)
-3. Set up project structure
-
-**This week:**
-- Implement Delta layer + Momentum layer
-- Set up Zoology benchmark harness
-- First recall experiments at 60M
+1. **Tiny Shakespeare** — validate training loop, observe probe fire rate over training
+2. **Zoology synthetic benchmarks** — MQAR recall, copying, state tracking at 60M
+3. **C4/SlimPajama pretraining** — 125M scale, compare vs Transformer/Mamba baselines
+4. **Zero-shot evaluation** — standard benchmarks via lm-evaluation-harness
+5. **Scale** — 350M, then 1.3B with MOHAWK distillation
 
 ---
 
 *SYNTHE — The architecture that learns how to learn.*
 
-*Created by Kael Valen*
-*February 2026*
+*Created by Kael Valen — February 2026*

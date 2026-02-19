@@ -19,6 +19,12 @@ The Kalman gain K_t is the key:
 This naturally implements "selective attention" — the state only updates
 when it's uncertain OR when the observation is trustworthy.
 
+Confidence signal is derived from the Innovation-to-Observation Ratio (IOR):
+    - IOR = |z_t - μ_{t-1}| / |z_t|  (prediction error ÷ observation scale)
+    - Pattern data → μ converges → IOR → 0 → HIGH confidence
+    - Random/noise → μ can't predict → IOR ≈ 1+ → LOW confidence
+This drives the attention probe: fire only when prediction fails.
+
 Inspired by: Kalman filtering, KalmanNet, Bayesian RNNs
 """
 
@@ -67,10 +73,11 @@ class KalmanLayer(SyntheLayer):
     
     Args:
         d_model: Input/output dimension
-        state_dim: Kalman state dimension
+        state_dim: Kalman state dimension (capped at max_state_dim)
         n_heads: Number of independent Kalman filters
         learn_dynamics: If True, learn transition matrix A; else fixed decay
         min_obs_noise: Minimum observation noise (prevents overconfidence)
+        max_state_dim: Hard cap on state_dim to prevent param bloat at scale
     """
 
     def __init__(
@@ -80,7 +87,10 @@ class KalmanLayer(SyntheLayer):
         n_heads: int = 4,
         learn_dynamics: bool = True,
         min_obs_noise: float = 0.01,
+        max_state_dim: int = 96,
     ):
+        # Cap state_dim — Kalman doesn't need large state for uncertainty tracking
+        state_dim = min(state_dim, max_state_dim)
         super().__init__(d_model=d_model, state_dim=state_dim)
 
         self.n_heads = n_heads
@@ -91,11 +101,9 @@ class KalmanLayer(SyntheLayer):
         # Project input → observation
         self.W_obs = nn.Linear(d_model, n_heads * state_dim, bias=False)
 
-        # Project input → observation noise (learned per-token)
-        self.W_r = nn.Linear(d_model, n_heads * state_dim, bias=True)
-
-        # Project input → process noise (learned per-token)  
-        self.W_q = nn.Linear(d_model, n_heads * state_dim, bias=True)
+        # Fused noise projection: single projection → split into (r, q)
+        # Halves param count vs separate W_r + W_q
+        self.W_noise = nn.Linear(d_model, n_heads * state_dim * 2, bias=True)
 
         # State transition: either learned or fixed
         if learn_dynamics:
@@ -118,17 +126,21 @@ class KalmanLayer(SyntheLayer):
     def _init_weights(self):
         nn.init.xavier_normal_(self.W_obs.weight, gain=0.5)
         nn.init.xavier_normal_(self.W_read.weight, gain=0.5)
-        # Initialize observation noise bias positive → cautious start
-        nn.init.constant_(self.W_r.bias, 1.0)
-        # Initialize process noise bias negative → slow uncertainty growth
-        nn.init.constant_(self.W_q.bias, -2.0)
+        # Fused noise bias init: first half = r (observation noise, cautious),
+        # second half = q (process noise, slow growth)
+        n = self.n_heads * self.state_dim
+        nn.init.constant_(self.W_noise.bias[:n], 1.0)    # r: cautious start
+        nn.init.constant_(self.W_noise.bias[n:], -2.0)   # q: slow uncertainty growth
 
     def init_state(self, batch_size: int, device: torch.device) -> LayerState:
         """Initialize with zero mean and high uncertainty."""
         # μ: (B, n_heads, state_dim) — zero mean
         mu = torch.zeros(batch_size, self.n_heads, self.state_dim, device=device)
         # σ²: (B, n_heads, state_dim) — high initial uncertainty
-        sigma_sq = torch.ones(batch_size, self.n_heads, self.state_dim, device=device)
+        # Start at 5.0 so the filter genuinely begins uncertain
+        sigma_sq = torch.full(
+            (batch_size, self.n_heads, self.state_dim), 5.0, device=device
+        )
         # Pack both into state
         state = torch.stack([mu, sigma_sq], dim=-1)  # (B, h, sd, 2)
         confidence = torch.zeros(batch_size, device=device)  # Start uncertain
@@ -157,16 +169,12 @@ class KalmanLayer(SyntheLayer):
             self.W_obs(x_norm), "b t (h d) -> b t h d", h=self.n_heads
         )
 
-        # Observation noise (per-token, learned)
-        r = rearrange(
-            self.W_r(x_norm), "b t (h d) -> b t h d", h=self.n_heads
-        )
+        # Fused noise projection → split into observation noise (r) and process noise (q)
+        noise = self.W_noise(x_norm)  # (B, T, 2 * n_heads * state_dim)
+        r_raw, q_raw = noise.chunk(2, dim=-1)
+        r = rearrange(r_raw, "b t (h d) -> b t h d", h=self.n_heads)
         r = F.softplus(r) + self.min_obs_noise  # Ensure positive
-
-        # Process noise (per-token, learned)
-        q = rearrange(
-            self.W_q(x_norm), "b t (h d) -> b t h d", h=self.n_heads
-        )
+        q = rearrange(q_raw, "b t (h d) -> b t h d", h=self.n_heads)
         q = F.softplus(q) + 1e-6
 
         # State transition
@@ -182,9 +190,17 @@ class KalmanLayer(SyntheLayer):
         mu, sigma_sq = self._unpack_state(state.state)
 
         outputs = []
-        kalman_gains = []
+        innov_ratios = []
 
         for t in range(T):
+            # Innovation: prediction error BEFORE Kalman update
+            # This measures how well the filter is predicting — the key
+            # signal that differentiates predictable vs random input.
+            innovation = z[:, t] - mu  # (B, h, d)
+            innov_mag = innovation.abs().mean(dim=(-1, -2))  # (B,)
+            obs_mag = z[:, t].abs().mean(dim=(-1, -2))       # (B,)
+            innov_ratios.append(innov_mag / (obs_mag + 1e-8))
+
             mu, sigma_sq, K = diagonal_kalman_step(
                 mu=mu,
                 sigma_sq=sigma_sq,
@@ -200,14 +216,19 @@ class KalmanLayer(SyntheLayer):
             read_input = torch.cat([mu_flat, sigma_flat], dim=-1)
             y_t = self.W_read(read_input)
             outputs.append(y_t)
-            kalman_gains.append(K.mean(dim=(-1, -2)))  # (B,)
 
         output = torch.stack(outputs, dim=1)  # (B, T, D)
+        ior_history = torch.stack(innov_ratios, dim=1)  # (B, T)
 
-        # Confidence: average inverse variance across state dims
-        # Low σ² → high confidence
-        avg_sigma = sigma_sq.mean(dim=(-1, -2))  # (B,)
-        confidence = torch.exp(-avg_sigma).clamp(0, 1)
+        # Confidence from prediction quality (innovation-to-observation ratio).
+        # Use last quarter to skip initial transient where mu=0.
+        #   IOR ≈ 0 → filter predicts perfectly → HIGH confidence
+        #   IOR ≈ 1+ → filter can't predict → LOW confidence
+        # Repeated pattern → IOR→0 → conf→1.0 (probe OFF)
+        # Random/noise → IOR≈1.4 → conf≈0.25 (probe ON)
+        recent = max(1, T // 4)
+        avg_ior = ior_history[:, -recent:].mean(dim=1)  # (B,)
+        confidence = torch.exp(-avg_ior).clamp(0, 1)
 
         new_state = LayerState(
             state=self._pack_state(mu, sigma_sq).detach() 

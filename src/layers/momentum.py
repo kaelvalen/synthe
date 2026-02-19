@@ -131,7 +131,7 @@ class MomentumLayer(SyntheLayer):
 
         # Confidence: based on gate stability
         # If alpha is consistently high or low → confident; oscillating → uncertain
-        alpha_var = alpha.var(dim=1).mean(dim=-1)  # (B,)
+        alpha_var = alpha.var(dim=1, unbiased=False).mean(dim=-1)  # (B,)
         confidence = torch.exp(-alpha_var)
 
         new_state = LayerState(
@@ -198,7 +198,7 @@ class ParallelMomentumLayer(MomentumLayer):
         output = rearrange(output, "b h t d -> b t (h d)")
         output = self.W_out(output)
 
-        alpha_var = alpha.var(dim=-1).mean(dim=-1)
+        alpha_var = alpha.var(dim=-1, unbiased=False).mean(dim=-1)
         confidence = torch.exp(-alpha_var)
 
         new_state = LayerState(
