@@ -1,12 +1,13 @@
 """Quick test: does the probe actually fire now?"""
 import sys
-sys.path.insert(0, "/home/kael/synthe")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
-from src.layers import KalmanLayer
+from src.layers import WienerCore
 
 B, T, D = 4, 64, 128
-layer = KalmanLayer(d_model=D, state_dim=32, n_heads=4)
+layer = WienerCore(d_model=D, state_dim=32, n_heads=4)
 
 # Random data
 x = torch.randn(B, T, D)

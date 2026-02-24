@@ -1,17 +1,23 @@
 """
 SYNTHE Temporal Memory Hub — Hierarchical Multi-Scale Memory
 
-Three tiers operating at different timescales:
-  Tier 1 (Token):     Updates every token. Fast, high-bandwidth.
-  Tier 2 (Sentence):  Updates every ~16 tokens. Delta-rule overwrite.
-  Tier 3 (Discourse): Updates every ~128 tokens. Kalman estimation.
+Three tiers, named after the scientists whose ideas they embody:
+
+  Hebb Layer (Tier 1, Token):      Updates every token. Fast, high-bandwidth.
+    → Donald Hebb — "fire together, wire together"
+
+  Elman Module (Tier 2, Sentence):  Updates every ~16 tokens. Delta-rule overwrite.
+    → Jeffrey Elman — recurrent temporal memory pioneer
+
+  Shannon Module (Tier 3, Discourse): Updates every ~128 tokens. Kalman estimation.
+    → Claude Shannon — information theory and entropy-based compression
 
 Information flows bidirectionally:
-  UP:   Tier 1 → compressed → Tier 2 → compressed → Tier 3
-  DOWN: Tier 3 → context prior → Tier 2 → bias → Tier 1
+  UP:   Hebb → compressed → Elman → compressed → Shannon
+  DOWN: Shannon → context prior → Elman → bias → Hebb
 
-Consolidation: persistent Tier 1 patterns are promoted to Tier 2.
-Forgetting: Delta rule in Tier 2 actively erases stale associations.
+Consolidation: persistent Hebb patterns are promoted to Elman.
+Forgetting: Delta rule in Elman actively erases stale associations.
 
 Inspired by hippocampal-neocortical memory consolidation
 and BWR-DNC's multi-scale compression hierarchy.
@@ -78,13 +84,18 @@ class TemporalMemoryHub(nn.Module):
     """
     Three-tier hierarchical memory with bidirectional flow.
     
+    Tiers:
+        Hebb Layer (tier1):     Token-level, fast GRU-style gated accumulator
+        Elman Module (tier2):   Sentence-level, delta-rule overwrite
+        Shannon Module (tier3): Discourse-level, Kalman state estimation
+    
     Args:
         d_model: Model dimension (input/output)
-        tier1_dim: Tier 1 state dimension (fast, token-level)
-        tier2_dim: Tier 2 state dimension (medium, sentence-level)
-        tier3_dim: Tier 3 state dimension (slow, discourse-level)
-        tier2_interval: Update Tier 2 every N tokens
-        tier3_interval: Update Tier 3 every N tokens
+        hebb_dim: Hebb Layer (Tier 1) state dimension (fast, token-level)
+        elman_dim: Elman Module (Tier 2) state dimension (medium, sentence-level)
+        shannon_dim: Shannon Module (Tier 3) state dimension (slow, discourse-level)
+        elman_interval: Update Elman Module every N tokens
+        shannon_interval: Update Shannon Module every N tokens
         consolidation_buffer_size: How many recent outputs to track for promotion
     """
 
@@ -107,32 +118,32 @@ class TemporalMemoryHub(nn.Module):
         self.tier3_interval = tier3_interval
         self.buffer_size = consolidation_buffer_size
 
-        # === Tier 1: Token-level gated accumulator ===
+        # === Hebb Layer (Tier 1): Token-level gated accumulator ===
         self.tier1_gate = nn.Linear(d_model + tier1_dim, tier1_dim)
         self.tier1_candidate = nn.Linear(d_model + tier1_dim, tier1_dim)
         self.tier1_read = nn.Linear(tier1_dim, d_model)
 
-        # === Tier 2: Sentence-level delta update ===
+        # === Elman Module (Tier 2): Sentence-level delta update ===
         self.tier2_key = nn.Linear(d_model, tier2_dim)
         self.tier2_value = nn.Linear(d_model, tier2_dim)
         self.tier2_beta = nn.Linear(d_model, 1)  # Learning rate
         self.tier2_read = nn.Linear(tier2_dim, d_model)
 
-        # === Tier 3: Discourse-level Kalman update ===
+        # === Shannon Module (Tier 3): Discourse-level Kalman update ===
         self.tier3_obs = nn.Linear(d_model, tier3_dim)
         self.tier3_obs_noise = nn.Linear(d_model, tier3_dim)
         self.tier3_read = nn.Linear(tier3_dim * 2, d_model)  # mean + variance
 
         # === Inter-tier communication ===
-        # Upward compression
+        # Upward compression: Hebb → Elman → Shannon
         self.compress_1to2 = TierCompressor(tier1_dim, tier2_dim)
         self.compress_2to3 = TierCompressor(tier2_dim, tier3_dim)
 
-        # Downward broadcasting
+        # Downward broadcasting: Shannon → Elman → Hebb
         self.broadcast_3to2 = TierBroadcaster(tier3_dim, tier2_dim)
         self.broadcast_2to1 = TierBroadcaster(tier2_dim, tier1_dim)
 
-        # === Consolidation gate: decides what to promote from Tier 1 → Tier 2 ===
+        # === Consolidation gate: decides what to promote from Hebb → Elman ===
         self.consolidation_gate = nn.Linear(d_model, 1)
 
         # === Output fusion: combine all tier readouts ===
@@ -154,7 +165,7 @@ class TemporalMemoryHub(nn.Module):
     def _update_tier1(
         self, x_t: torch.Tensor, tier1: torch.Tensor, bias_from_tier2: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """GRU-style gated update for token-level memory."""
+        """GRU-style gated update for Hebb Layer (token-level memory)."""
         # Apply bias from higher tier
         tier1_biased = tier1 + bias_from_tier2
 
@@ -168,11 +179,11 @@ class TemporalMemoryHub(nn.Module):
 
     def _update_tier2(
         self, 
-        summary: torch.Tensor,  # Compressed from Tier 1
+        summary: torch.Tensor,  # Compressed from Hebb Layer
         tier2: torch.Tensor,
         bias_from_tier3: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Delta-rule update for sentence-level memory."""
+        """Delta-rule update for Elman Module (sentence-level memory)."""
         tier2_biased = tier2 + bias_from_tier3
 
         k = self.tier2_key(summary)
@@ -189,11 +200,11 @@ class TemporalMemoryHub(nn.Module):
 
     def _update_tier3(
         self,
-        summary: torch.Tensor,  # Compressed from Tier 2
+        summary: torch.Tensor,  # Compressed from Elman Module
         tier3: torch.Tensor,
         tier3_var: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Diagonal Kalman update for discourse-level memory."""
+        """Diagonal Kalman update for Shannon Module (discourse-level memory)."""
         z = self.tier3_obs(summary)
         r = F.softplus(self.tier3_obs_noise(summary)) + 0.01
 
@@ -236,15 +247,16 @@ class TemporalMemoryHub(nn.Module):
             token_count += 1
 
             # --- Downward broadcasts (context priors) ---
+            # Shannon → Elman → Hebb
             bias_2to1 = self.broadcast_2to1(tier2)  # (B, tier1_dim)
             bias_3to2 = self.broadcast_3to2(tier3)  # (B, tier2_dim)
 
-            # --- Tier 1: every token ---
+            # --- Hebb Layer: every token ---
             tier1, read1 = self._update_tier1(x_t, tier1, bias_2to1)
 
-            # --- Tier 2: every tier2_interval tokens ---
+            # --- Elman Module: every elman_interval tokens ---
             if token_count % self.tier2_interval == 0:
-                # Compress Tier 1 signal for Tier 2
+                # Compress Hebb signal for Elman
                 compressed_1 = self.compress_1to2(tier1)
                 # Use mean of consolidation buffer as summary
                 buffer_mean = cons_buffer.mean(dim=1)  # (B, D)
@@ -252,7 +264,7 @@ class TemporalMemoryHub(nn.Module):
             
             read2 = self.tier2_read(tier2)  # Always readable
 
-            # --- Tier 3: every tier3_interval tokens ---
+            # --- Shannon Module: every shannon_interval tokens ---
             if token_count % self.tier3_interval == 0:
                 compressed_2 = self.compress_2to3(tier2)
                 tier3, tier3_var, read3_raw = self._update_tier3(
@@ -284,6 +296,6 @@ class TemporalMemoryHub(nn.Module):
         return output, new_state
 
     def get_confidence(self, state: MemoryState) -> torch.Tensor:
-        """Global confidence from Tier 3 variance."""
+        """Global confidence (Turing Gate signal) from Shannon Module variance."""
         avg_var = state.tier2_var.mean(dim=-1)
         return torch.exp(-avg_var).clamp(0, 1)

@@ -10,7 +10,8 @@ Validates the complete architecture end-to-end:
 """
 
 import sys
-sys.path.insert(0, "/home/kael/synthe")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 import time
@@ -134,9 +135,9 @@ def test_gradient_flow_full():
     
     components = {
         "embedding": model.embedding.weight,
-        "block[0].momentum.W_k": block0.momentum.W_k.weight,
-        "block[0].delta.W_k": block0.delta.W_k.weight,
-        "block[0].kalman.W_obs": block0.kalman.W_obs.weight,
+        "block[0].jordan.W_k": block0.jordan.W_k.weight,
+        "block[0].hopfield.W_k": block0.hopfield.W_k.weight,
+        "block[0].wiener.W_obs": block0.wiener.W_obs.weight,
         "block[-1].ffn.w1": blockN.ffn.w1.weight,
         "memory_hub.fusion": model.memory_hub.fusion.weight,
         "router.estimator[0]": model.router.estimator[0].weight,

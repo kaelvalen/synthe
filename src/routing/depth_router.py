@@ -10,9 +10,9 @@ Hard tokens (rare, ambiguous, critical)  → full depth + memory query
 This is Mixture-of-Depths but continuous, not binary.
 Expected savings: 30-50% FLOPs on average text.
 
-The router uses two signals:
+The router uses two signals (Turing Gate integration):
 1. Its own difficulty estimate (tiny MLP)
-2. Confidence from Kalman layer / Memory Hub (external signal)
+2. Confidence from Wiener Core / Memory Hub (external signal)
 """
 
 import torch
@@ -65,8 +65,8 @@ class DepthRouter(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-        # Confidence integrator: combines router estimate with external signals
-        self.confidence_fuser = nn.Linear(3, 1, bias=True)  # [router, kalman_conf, memory_conf]
+        # Confidence integrator (Turing Gate): combines router estimate with external signals
+        self.confidence_fuser = nn.Linear(3, 1, bias=True)  # [router, wiener_conf, memory_conf]
 
         self._init_weights()
 
@@ -80,7 +80,7 @@ class DepthRouter(nn.Module):
         self,
         x: torch.Tensor,             # (B, T, D) — current hidden state
         block_idx: int,               # Which block we're at (0-indexed)
-        kalman_confidence: Optional[torch.Tensor] = None,  # (B,) from Kalman layer
+        wiener_confidence: Optional[torch.Tensor] = None,  # (B,) from Wiener Core
         memory_confidence: Optional[torch.Tensor] = None,  # (B,) from Memory Hub
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
@@ -106,13 +106,13 @@ class DepthRouter(nn.Module):
         # Fuse with external confidence signals
         router_mean = router_confidence.mean(dim=1)  # (B,)
         
-        if kalman_confidence is None:
-            kalman_confidence = torch.ones(B, device=x.device)
+        if wiener_confidence is None:
+            wiener_confidence = torch.ones(B, device=x.device)
         if memory_confidence is None:
             memory_confidence = torch.ones(B, device=x.device)
 
         fuse_input = torch.stack([
-            router_mean, kalman_confidence, memory_confidence
+            router_mean, wiener_confidence, memory_confidence
         ], dim=-1)  # (B, 3)
         
         fused_confidence = torch.sigmoid(

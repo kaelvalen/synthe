@@ -28,6 +28,23 @@ These are not abandoned projects — they are SYNTHE's ancestry.
 
 ---
 
+## Internal Naming Convention
+
+*"SYNTHE's components are named after the scientists whose ideas they embody — not as tribute, but as lineage."*
+
+| Layer / Module | Internal Name | Scientist | Why |
+|---------------|--------------|-----------|-----|
+| Delta Layer | **Hopfield Core** | John Hopfield | Energy-based associative memory, delta rule for overwriting |
+| Kalman Layer | **Wiener Core** | Norbert Wiener | Father of cybernetics, optimal filtering theory ancestor |
+| Momentum Layer | **Jordan Layer** | Michael I. Jordan | Pioneer of recurrent architectures for temporal processing |
+| Tier 1 Token Memory | **Hebb Layer** | Donald Hebb | "Fire together, wire together" — fastest, most fundamental |
+| Tier 2 Sentence Memory | **Elman Module** | Jeffrey Elman | Recurrent temporal memory pioneer, simple but exact fit |
+| Tier 3 Discourse Memory | **Shannon Module** | Claude Shannon | Information theory, entropy-based compression |
+| Epistemic Confidence | **Turing Gate** | Alan Turing | A system that knows when it doesn't know |
+| Attention Probe | *(unchanged)* | — | Emergency precision recall — pragmatic, not lineage |
+
+---
+
 ## The Problem Space
 
 Every current architecture makes the same trade-off:
@@ -53,11 +70,11 @@ The field's response has been to **hybridize** — stack SSM layers with occasio
 
 In a Transformer, each layer applies a fixed function (attention + FFN). In SYNTHE, each layer runs an **online learning algorithm** that updates its state based on incoming tokens. The choice of algorithm defines the layer's behavior:
 
-| Layer Type | Update Rule | Inspired By | Strength |
+| Layer Type | Update Rule | Named After | Strength |
 |-----------|-------------|-------------|----------|
-| **Delta Layer** | Δw = α(target - prediction) · input | DeltaNet / Hopfield | Overwrites stale info, precise recall |
-| **Kalman Layer** | Bayesian state estimation with uncertainty | Kalman filtering | Uncertainty-aware, stable updates |
-| **Momentum Layer** | Exponential moving average with gating | RWKV-7 / mLSTM | Fast temporal patterns, efficiency |
+| **Hopfield Core** (ex-Delta) | Δw = α(target - prediction) · input | John Hopfield / DeltaNet | Overwrites stale info, precise recall |
+| **Wiener Core** (ex-Kalman) | Bayesian state estimation with uncertainty | Norbert Wiener / Kalman filtering | Uncertainty-aware, stable updates |
+| **Jordan Layer** (ex-Momentum) | Exponential moving average with gating | Michael I. Jordan / RWKV-7 | Fast temporal patterns, efficiency |
 | **Attention Probe** | Sparse local attention (emergency) | Sliding window | Precision fallback for critical recall |
 
 A SYNTHE block is a **stack of 2-4 of these layer types**, configured per task/deployment. The key insight: different positions in the network benefit from different learning dynamics.
@@ -68,27 +85,27 @@ Three memory tiers operating at different timescales:
 
 ```
 ┌─────────────────────────────────────────────┐
-│  TIER 3: Discourse Memory (slow)            │
-│  Updates: every ~100 tokens                 │
-│  Rule: Kalman estimation                    │
-│  Stores: topic, style, long-range deps      │
-│  State size: small (compressed summaries)   │
+│  SHANNON MODULE (Tier 3, Discourse — slow)      │
+│  Updates: every ~100 tokens                     │
+│  Rule: Kalman estimation                        │
+│  Stores: topic, style, long-range deps          │
+│  State size: small (compressed summaries)        │
 ├─────────────────────────────────────────────┤
-│  TIER 2: Sentence Memory (medium)           │
-│  Updates: every ~10-20 tokens               │
-│  Rule: Delta rule (overwrite stale)         │
-│  Stores: entity tracking, clause relations  │
-│  State size: medium                         │
+│  ELMAN MODULE (Tier 2, Sentence — medium)       │
+│  Updates: every ~10-20 tokens                   │
+│  Rule: Delta rule (overwrite stale)              │
+│  Stores: entity tracking, clause relations       │
+│  State size: medium                              │
 ├─────────────────────────────────────────────┤
-│  TIER 1: Token Memory (fast)                │
-│  Updates: every token                       │
-│  Rule: Gated momentum (RWKV-style)          │
-│  Stores: local syntax, immediate context    │
-│  State size: large (high bandwidth)         │
+│  HEBB LAYER (Tier 1, Token — fast)               │
+│  Updates: every token                            │
+│  Rule: Gated momentum (RWKV-style)               │
+│  Stores: local syntax, immediate context         │
+│  State size: large (high bandwidth)              │
 └─────────────────────────────────────────────┘
 ```
 
-Information flows **both up and down**: Tier 1 feeds compressed signals to Tier 2, Tier 2 to Tier 3. But Tier 3 also broadcasts "context priors" down to Tier 1, biasing local processing. This is inspired by the brain's hippocampal-neocortical memory consolidation — and by BWR-DNC's multi-scale compression hierarchy.
+Information flows **both up and down**: Hebb feeds compressed signals to Elman, Elman to Shannon. But Shannon also broadcasts "context priors" down to Hebb, biasing local processing. This is inspired by the brain's hippocampal-neocortical memory consolidation — and by BWR-DNC's multi-scale compression hierarchy.
 
 ### 3. Dynamic Computation Depth
 
@@ -106,17 +123,17 @@ This is Mixture-of-Depths but continuous, not binary. The difficulty estimator i
 
 ### 4. Test-Time State Learning
 
-During inference, Tier 2 and Tier 3 memories perform actual gradient updates on their internal states — not backpropagation through the whole model, but local online learning within each memory module. This is the Titans insight, extended to multiple scales:
+During inference, Elman Module (Tier 2) and Shannon Module (Tier 3) memories perform actual gradient updates on their internal states — not backpropagation through the whole model, but local online learning within each memory module. This is the Titans insight, extended to multiple scales:
 
-- **Surprise signal**: When the model's prediction is wrong, Tier 2 increases its learning rate
-- **Consolidation**: Periodically, Tier 1 patterns that persist are promoted to Tier 2 (learned compression, à la BWR-DNC)
-- **Forgetting**: Delta rule in Tier 2 actively erases associations that conflict with new evidence
+- **Surprise signal**: When the model's prediction is wrong, Elman Module increases its learning rate
+- **Consolidation**: Periodically, Hebb Layer patterns that persist are promoted to Elman Module (learned compression, à la BWR-DNC)
+- **Forgetting**: Delta rule in Elman Module actively erases associations that conflict with new evidence
 
 This means SYNTHE's effective context window is **theoretically unbounded** — not because it stores everything, but because it *learns* what matters.
 
-### 5. Epistemic Confidence
+### 5. Epistemic Confidence (Turing Gate)
 
-Borrowed from Velocity's NNEI paradigm: SYNTHE tracks confidence in its own state. Each memory tier maintains an uncertainty estimate:
+Borrowed from Velocity's NNEI paradigm: SYNTHE tracks confidence in its own state via the **Turing Gate** mechanism. Each memory tier maintains an uncertainty estimate:
 
 - **High confidence** → use cached state, skip computation
 - **Low confidence** → allocate more compute, query higher tiers
@@ -142,22 +159,22 @@ INPUT TOKENS
 │                    SYNTHE BLOCK × N                     │
 │                                                         │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
-│  │ Momentum │→ │  Delta   │→ │  Kalman  │  ← Layer      │
-│  │  Layer   │  │  Layer   │  │  Layer   │    Learners   │
+│  │ Jordan   │→ │ Hopfield │→ │ Wiener   │  ← Layer      │
+│  │  Layer   │  │  Core    │  │  Core    │    Learners   │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘               │
 │       │             │             │                     │
 │       ▼             ▼             ▼                     │
 │  ┌──────────────────────────────────────────┐           │
 │  │         TEMPORAL MEMORY HUB              │           │
-│  │  Tier 1 ←→ Tier 2 ←→ Tier 3              │           │
-│  │  (token)   (sentence)  (discourse)       │           │
+│  │  Hebb   ←→ Elman  ←→ Shannon             │           │
+│  │  (token)   (sentence) (discourse)         │           │
 │  └──────────────────────────────────────────┘           │
 │       │                                                 │
 │       ▼                                                 │
-│  ┌──────────┐                                           │
-│  │  Depth   │ → skip remaining layers if confident      │
-│  │  Router  │                                           │
-│  └──────────┘                                           │
+│  ┌──────────┐  ┌──────────┐                               │
+│  │  Depth   │  │ Turing   │  → if confident: skip       │
+│  │  Router  │  │  Gate    │    if uncertain: probe      │
+│  └──────────┘  └──────────┘                               │
 │                                                         │
 │  [Optional: Attention Probe — activated by low          │
 │   confidence or conflicting memory tiers]               │
@@ -176,32 +193,33 @@ INPUT TOKENS
 ```yaml
 synthe_block:
   layers:
-    - type: momentum      # Fast local patterns
+    - type: jordan         # Fast local patterns (ex-momentum)
       state_dim: 256
       update: gated_ema
-    - type: delta          # Associative recall  
+    - type: hopfield       # Associative recall (ex-delta)
       state_dim: 128
       update: delta_rule
       overwrite: true
-    - type: kalman         # Uncertainty-aware state
+    - type: wiener         # Uncertainty-aware state (ex-kalman)
       state_dim: 64
       update: bayesian
   
   memory:
-    tier1_tokens: 1        # Update every token
-    tier2_tokens: 16       # Update every 16 tokens
-    tier3_tokens: 128      # Update every 128 tokens
-    consolidation: true    # Promote persistent patterns
+    hebb_tokens: 1         # Hebb Layer: update every token
+    elman_tokens: 16       # Elman Module: update every 16 tokens
+    shannon_tokens: 128    # Shannon Module: update every 128 tokens
+    consolidation: true    # Promote persistent Hebb patterns to Elman
     
   routing:
     depth_estimator: mlp_tiny  # 2-layer, 64 hidden
+    turing_gate: true          # Epistemic confidence routing
     min_depth: 2
     max_depth: N  # total blocks
     
   attention_probe:
     enabled: true
     window_size: 256
-    trigger: confidence < 0.35  # Innovation-based (IOR)
+    trigger: turing_gate.confidence < 0.35  # Wiener IOR-based
 ```
 
 ---
@@ -211,7 +229,7 @@ synthe_block:
 | | Transformer | Mamba/SSM | Hybrid (Jamba) | **SYNTHE** |
 |---|---|---|---|---|
 | **Time complexity** | O(n²) | O(n) | O(n) amortized | O(n) |
-| **Recall** | Perfect | Limited by state | Good (attention layers) | **Learned recall via Delta + test-time learning** |
+| **Recall** | Perfect | Limited by state | Good (attention layers) | **Learned recall via Hopfield Core + test-time learning** |
 | **Memory** | KV cache grows linearly | Fixed state | Reduced KV cache | **Hierarchical, multi-scale, bounded** |
 | **Compute per token** | Fixed | Fixed | Fixed | **Dynamic (30-50% savings)** |
 | **Context length** | Bounded by memory | Theoretically unbounded | 256K demonstrated | **Unbounded (online learning)** |
@@ -232,7 +250,7 @@ synthe_block:
   - Copying — tests state retention  
   - State tracking — tests dynamic state management
 - Compare against baseline Transformer and Mamba at same scale
-- **Success metric:** Delta layer matches or exceeds Mamba on recall tasks
+- **Success metric:** Hopfield Core matches or exceeds Mamba on recall tasks
 
 ### Phase 1: Hierarchical Memory (Week 3-4)  
 **Scale:** 60M-125M parameters
@@ -274,8 +292,8 @@ synthe_block:
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Delta rule unstable at scale | HIGH | Gated delta (à la Gated DeltaNet) + gradient clipping |
-| Kalman layer too expensive | MEDIUM | Low-rank Kalman approximation, update only every K tokens |
+| Delta rule unstable at scale | HIGH | Gated delta (Hopfield Core, à la Gated DeltaNet) + gradient clipping |
+| Kalman layer too expensive | MEDIUM | Low-rank approximation in Wiener Core, update only every K tokens |
 | Depth router adds overhead | LOW | Tiny MLP (2-layer, 64 hidden), <1% of total compute |
 | Tier interactions create instability | HIGH | Progressive training: Tier 1 first, add Tier 2 after convergence, then Tier 3 |
 | Test-time learning drifts | MEDIUM | Bounded learning rate + periodic state reset option |
@@ -286,9 +304,9 @@ synthe_block:
 
 1. **First unified meta-architecture** where every layer is an explicit online learner
 2. **Hierarchical test-time memorization** at multiple temporal scales — unexplored in literature
-3. **Kalman-based state estimation** for sequence modeling (novel primitive)
-4. **Dynamic continuous-depth routing** for non-Transformer architectures
-5. **Epistemic confidence tracking** as architectural primitive, not post-hoc calibration
+3. **Kalman-based state estimation** (Wiener Core) for sequence modeling (novel primitive)
+4. **Dynamic continuous-depth routing** with Turing Gate for non-Transformer architectures
+5. **Epistemic confidence tracking** (Turing Gate) as architectural primitive, not post-hoc calibration
 
 ---
 
@@ -304,25 +322,26 @@ synthe/
 ├── src/
 │   ├── layers/
 │   │   ├── base.py          # SyntheLayer ABC + LayerState
-│   │   ├── momentum.py      # Gated EMA / RWKV-style          ✓
-│   │   ├── delta.py         # Delta rule associative memory    ✓
-│   │   ├── kalman.py        # Kalman filter + IOR confidence   ✓
-│   │   └── attention.py     # Conditional attention probe      ✓
+│   │   ├── jordan.py        # Jordan Layer (gated EMA)            ✓
+│   │   ├── hopfield.py      # Hopfield Core (delta rule memory)   ✓
+│   │   ├── wiener.py        # Wiener Core (Kalman + IOR)          ✓
+│   │   ├── turing.py        # Turing Gate (epistemic confidence)  ✓
+│   │   └── attention.py     # Conditional attention probe          ✓
 │   ├── memory/
-│   │   └── hub.py           # 3-tier temporal memory hub       ✓
+│   │   └── hub.py           # Hebb/Elman/Shannon memory hub       ✓
 │   ├── routing/
-│   │   └── depth_router.py  # Dynamic computation depth        ✓
+│   │   └── depth_router.py  # Dynamic computation depth            ✓
 │   └── model/
-│       ├── block.py         # SYNTHE block (composable unit)   ✓
-│       └── synthe.py        # Full model + generation          ✓
+│       ├── block.py         # SYNTHE block (composable unit)      ✓
+│       └── synthe.py        # Full model + generation             ✓
 ├── configs/
 │   └── synthe_60m.yaml      # 60M config for RTX 5060 Mobile
 ├── scripts/
 │   └── train.py             # Training loop
 └── tests/
-    ├── test_layers.py       # Layer validation suite           ✓
-    ├── test_model.py        # Full model integration tests     ✓
-    └── test_probe_fire.py   # Probe activation diagnostic      ✓
+    ├── test_layers.py       # Layer validation suite              ✓
+    ├── test_model.py        # Full model integration tests        ✓
+    └── test_probe_fire.py   # Probe activation diagnostic         ✓
 ```
 
 ---
@@ -331,13 +350,14 @@ synthe/
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| MomentumLayer | ✅ Done | Gated EMA + ParallelMomentum variant |
-| DeltaLayer | ✅ Done | Full delta rule + ChunkedDelta variant |
-| KalmanLayer | ✅ Done | Diagonal Kalman + IOR confidence + fused projections |
+| JordanLayer (ex-Momentum) | ✅ Done | Gated EMA + ParallelJordan variant |
+| HopfieldCore (ex-Delta) | ✅ Done | Full delta rule + ChunkedHopfield variant |
+| WienerCore (ex-Kalman) | ✅ Done | Diagonal Kalman + IOR confidence + fused projections |
+| TuringGate | ✅ Done | Epistemic confidence aggregation + gating |
 | AttentionProbe | ✅ Done | Conditional sliding-window, confidence-gated |
-| TemporalMemoryHub | ✅ Done | 3-tier with bidirectional flow |
+| TemporalMemoryHub | ✅ Done | Hebb/Elman/Shannon tiers with bidirectional flow |
 | DepthRouter | ✅ Done | Continuous routing with early exit |
-| SyntheBlock | ✅ Done | Momentum→Delta→Kalman→FFN→Probe composition |
+| SyntheBlock | ✅ Done | Jordan→Hopfield→Wiener→FFN→Probe composition |
 | Full Model | ✅ Done | Config presets, generation, state streaming |
 | Test Suite | ✅ Done | Layers + integration + probe diagnostics |
 | Training Script | ✅ Done | Tiny Shakespeare + custom data support |

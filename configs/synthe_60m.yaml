@@ -1,15 +1,25 @@
 # SYNTHE 60M — Zoology benchmark config
 # Target: RTX 5060 Mobile (8GB VRAM)
+#
+# Naming Convention:
+#   Jordan Layer (ex-Momentum)   — Michael I. Jordan
+#   Hopfield Core (ex-Delta)     — John Hopfield
+#   Wiener Core (ex-Kalman)      — Norbert Wiener
+#   Turing Gate (confidence)     — Alan Turing
+#   Hebb Layer (Tier 1, token)   — Donald Hebb
+#   Elman Module (Tier 2, sent)  — Jeffrey Elman
+#   Shannon Module (Tier 3, disc)— Claude Shannon
+#
 d_model: 512
 n_blocks: 8
 vocab_size: 32000
 state_dim: 128
-kalman_state_dim: 64
+wiener_state_dim: 64
 n_heads: 8
 ffn_expand: 2.67
-tier1_dim: 256
-tier2_dim: 128
-tier3_dim: 64
+tier1_dim: 256     # Hebb Layer
+tier2_dim: 128     # Elman Module
+tier3_dim: 64      # Shannon Module
 tier2_interval: 16
 tier3_interval: 128
 router_hidden: 64

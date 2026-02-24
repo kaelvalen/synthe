@@ -1,27 +1,39 @@
 """
 SYNTHE Layer Tests — Validate all primitives work correctly.
 
+Naming convention:
+    HopfieldCore (ex-DeltaLayer) — John Hopfield
+    JordanLayer (ex-MomentumLayer) — Michael I. Jordan
+    WienerCore (ex-KalmanLayer) — Norbert Wiener
+    TuringGate (epistemic confidence) — Alan Turing
+
 Tests:
 1. Forward pass shapes
 2. State persistence across calls
 3. Confidence output ranges
-4. Associative recall (Delta layer specific)
+4. Associative recall (Hopfield Core specific)
 5. Memory usage estimation
 """
 
 import sys
-sys.path.insert(0, "/home/kael/synthe")
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
 from src.layers import (
-    DeltaLayer, ChunkedDeltaLayer,
-    MomentumLayer, ParallelMomentumLayer, 
-    KalmanLayer,
+    HopfieldCore, ChunkedHopfieldCore,
+    JordanLayer, ParallelJordanLayer, 
+    WienerCore,
+    TuringGate,
     AttentionProbe,
     LayerState,
+    # Backward-compatible aliases
+    DeltaLayer, ChunkedDeltaLayer,
+    MomentumLayer, ParallelMomentumLayer,
+    KalmanLayer,
 )
 
 
@@ -31,9 +43,9 @@ def test_shapes():
     x = torch.randn(B, T, D)
 
     layers = {
-        "DeltaLayer": DeltaLayer(d_model=D, state_dim=64, n_heads=4),
-        "MomentumLayer": MomentumLayer(d_model=D, state_dim=64, n_heads=4),
-        "KalmanLayer": KalmanLayer(d_model=D, state_dim=64, n_heads=4),
+        "HopfieldCore": HopfieldCore(d_model=D, state_dim=64, n_heads=4),
+        "JordanLayer": JordanLayer(d_model=D, state_dim=64, n_heads=4),
+        "WienerCore": WienerCore(d_model=D, state_dim=64, n_heads=4),
         "AttentionProbe": AttentionProbe(d_model=D, window_size=32, n_heads=4, always_on=True),
     }
 
@@ -62,7 +74,7 @@ def test_state_persistence():
     print("TEST: State Persistence")
     print("=" * 60)
 
-    layer = DeltaLayer(d_model=D, state_dim=64, n_heads=4)
+    layer = HopfieldCore(d_model=D, state_dim=64, n_heads=4)
 
     x1 = torch.randn(B, T, D)
     x2 = torch.randn(B, T, D)
@@ -87,14 +99,14 @@ def test_state_persistence():
 
 
 def test_delta_recall():
-    """Delta layer can store and retrieve associations."""
+    """Hopfield Core can store and retrieve associations."""
     B, D = 1, 64
 
     print("=" * 60)
-    print("TEST: Delta Layer Associative Recall")
+    print("TEST: Hopfield Core Associative Recall")
     print("=" * 60)
 
-    layer = DeltaLayer(d_model=D, state_dim=64, n_heads=4)
+    layer = HopfieldCore(d_model=D, state_dim=64, n_heads=4)
 
     # Create two distinct key-value pairs
     torch.manual_seed(42)
@@ -123,19 +135,19 @@ def test_delta_recall():
     print(f"  (Higher = more stable recall)")
 
     assert consistency > 0.99, "Recall not consistent!"
-    print(f"  ✓ Delta layer shows associative memory behavior")
+    print(f"  ✓ Hopfield Core shows associative memory behavior")
     print()
 
 
 def test_kalman_uncertainty():
-    """Kalman layer tracks uncertainty — confident on repeated patterns, uncertain on noise."""
+    """Wiener Core tracks uncertainty — confident on repeated patterns, uncertain on noise."""
     B, T, D = 2, 100, 64
 
     print("=" * 60)
-    print("TEST: Kalman Uncertainty Tracking")
+    print("TEST: Wiener Core Uncertainty Tracking")
     print("=" * 60)
 
-    layer = KalmanLayer(d_model=D, state_dim=32, n_heads=4)
+    layer = WienerCore(d_model=D, state_dim=32, n_heads=4)
 
     # Repeated pattern: should become confident
     pattern = torch.randn(1, 1, D).expand(B, T, D)
@@ -150,7 +162,7 @@ def test_kalman_uncertainty():
     
     # Pattern should yield higher confidence than noise
     # (this is a soft check — initialization matters)
-    print(f"  ✓ Kalman layer provides differentiated confidence signals")
+    print(f"  ✓ Wiener Core provides differentiated confidence signals")
     print()
 
 
@@ -208,9 +220,9 @@ def test_gradient_flow():
     print("=" * 60)
 
     layers = {
-        "DeltaLayer": DeltaLayer(d_model=D, state_dim=64, n_heads=4),
-        "MomentumLayer": MomentumLayer(d_model=D, state_dim=64, n_heads=4),
-        "KalmanLayer": KalmanLayer(d_model=D, state_dim=32, n_heads=4),
+        "HopfieldCore": HopfieldCore(d_model=D, state_dim=64, n_heads=4),
+        "JordanLayer": JordanLayer(d_model=D, state_dim=64, n_heads=4),
+        "WienerCore": WienerCore(d_model=D, state_dim=32, n_heads=4),
         "AttentionProbe": AttentionProbe(d_model=D, window_size=32, n_heads=4, always_on=True),
     }
 
@@ -241,10 +253,10 @@ def test_speed_benchmark():
     print("=" * 60)
 
     layers = {
-        "DeltaLayer": DeltaLayer(d_model=D, state_dim=128, n_heads=8),
-        "ChunkedDelta(64)": ChunkedDeltaLayer(d_model=D, state_dim=128, n_heads=8, chunk_size=64),
-        "MomentumLayer": MomentumLayer(d_model=D, state_dim=64, n_heads=8),
-        "KalmanLayer": KalmanLayer(d_model=D, state_dim=64, n_heads=8),
+        "HopfieldCore": HopfieldCore(d_model=D, state_dim=128, n_heads=8),
+        "ChunkedHopfield(64)": ChunkedHopfieldCore(d_model=D, state_dim=128, n_heads=8, chunk_size=64),
+        "JordanLayer": JordanLayer(d_model=D, state_dim=64, n_heads=8),
+        "WienerCore": WienerCore(d_model=D, state_dim=64, n_heads=8),
         "AttentionProbe": AttentionProbe(d_model=D, window_size=128, n_heads=8, always_on=True),
     }
 
@@ -282,20 +294,20 @@ def test_param_count():
     ]
 
     for name, d_model, state_dim, kalman_sd, n_heads in configs:
-        delta = DeltaLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
-        momentum = MomentumLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
-        kalman = KalmanLayer(d_model=d_model, state_dim=kalman_sd, n_heads=n_heads)
+        hopfield = HopfieldCore(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
+        jordan = JordanLayer(d_model=d_model, state_dim=state_dim, n_heads=n_heads)
+        wiener = WienerCore(d_model=d_model, state_dim=kalman_sd, n_heads=n_heads)
         probe = AttentionProbe(d_model=d_model, n_heads=n_heads, always_on=True)
 
         total = sum(
             sum(p.numel() for p in l.parameters())
-            for l in [delta, momentum, kalman, probe]
+            for l in [hopfield, jordan, wiener, probe]
         )
 
         print(f"  {name:15s} (d={d_model}, sd={state_dim}, ksd={kalman_sd}, h={n_heads})")
-        print(f"    Delta:    {sum(p.numel() for p in delta.parameters()):>10,}")
-        print(f"    Momentum: {sum(p.numel() for p in momentum.parameters()):>10,}")
-        print(f"    Kalman:   {sum(p.numel() for p in kalman.parameters()):>10,}")
+        print(f"    Hopfield: {sum(p.numel() for p in hopfield.parameters()):>10,}")
+        print(f"    Jordan:   {sum(p.numel() for p in jordan.parameters()):>10,}")
+        print(f"    Wiener:   {sum(p.numel() for p in wiener.parameters()):>10,}")
         print(f"    Probe:    {sum(p.numel() for p in probe.parameters()):>10,}")
         print(f"    Block:    {total:>10,} (× N_blocks for full model)")
         print()

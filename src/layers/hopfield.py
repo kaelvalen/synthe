@@ -1,5 +1,8 @@
 """
-SYNTHE Delta Layer — Associative Memory with Active Overwriting
+SYNTHE Hopfield Core — Associative Memory with Active Overwriting
+
+Named after John Hopfield, whose associative memory networks and
+energy-based learning rules directly inspired the delta update.
 
 The key insight: standard gated recurrence ADDS new information while
 DECAYING old information. The delta rule ERASES the old association
@@ -28,9 +31,11 @@ from einops import rearrange
 from .base import SyntheLayer, LayerState
 
 
-class DeltaLayer(SyntheLayer):
+class HopfieldCore(SyntheLayer):
     """
-    Delta rule layer with input-dependent gating.
+    Hopfield Core — Delta rule layer with input-dependent gating.
+    
+    Named after John Hopfield: associative memory with active overwriting.
     
     State: S ∈ R^{state_dim × state_dim} — associative memory matrix
     Per token: O(state_dim²) compute, O(1) relative to sequence length
@@ -199,9 +204,9 @@ class DeltaLayer(SyntheLayer):
         return output, new_state
 
 
-class ChunkedDeltaLayer(DeltaLayer):
+class ChunkedHopfieldCore(HopfieldCore):
     """
-    Delta layer with chunk-wise parallel processing.
+    Hopfield Core with chunk-wise parallel processing.
     
     Instead of pure sequential scan, processes chunks of tokens
     in parallel (intra-chunk) then propagates state between chunks

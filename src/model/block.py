@@ -1,8 +1,14 @@
 """
 SYNTHE Block — The Composable Unit
 
-One SYNTHE block = Momentum → Delta → Kalman → (optional Probe)
+One SYNTHE block = Jordan → Hopfield → Wiener → (optional Probe)
 with residual connections, memory hub interaction, and depth routing.
+
+Naming convention:
+    Jordan Layer   (ex-Momentum)  — Michael I. Jordan
+    Hopfield Core  (ex-Delta)     — John Hopfield
+    Wiener Core    (ex-Kalman)    — Norbert Wiener
+    Turing Gate    (confidence)   — Alan Turing
 
 Multiple blocks are stacked to form the full model.
 Each block maintains its own state across tokens.
@@ -14,9 +20,9 @@ from typing import Optional, Tuple, Dict, Any
 from dataclasses import dataclass
 
 from ..layers import (
-    MomentumLayer,
-    DeltaLayer,
-    KalmanLayer,
+    JordanLayer,
+    HopfieldCore,
+    WienerCore,
     AttentionProbe,
     LayerState,
 )
@@ -25,16 +31,16 @@ from ..layers import (
 @dataclass
 class BlockState:
     """Combined state for all layers in a block."""
-    momentum_state: LayerState
-    delta_state: LayerState
-    kalman_state: LayerState
+    jordan_state: LayerState    # ex-momentum_state
+    hopfield_state: LayerState  # ex-delta_state
+    wiener_state: LayerState    # ex-kalman_state
     probe_state: LayerState
 
     def detach(self) -> "BlockState":
         return BlockState(
-            momentum_state=self.momentum_state.detach(),
-            delta_state=self.delta_state.detach(),
-            kalman_state=self.kalman_state.detach(),
+            jordan_state=self.jordan_state.detach(),
+            hopfield_state=self.hopfield_state.detach(),
+            wiener_state=self.wiener_state.detach(),
             probe_state=self.probe_state.detach(),
         )
 
@@ -61,15 +67,15 @@ class SyntheBlock(nn.Module):
     One SYNTHE processing block.
     
     Flow:
-        x → [Momentum] → +residual → [Delta] → +residual → 
-        [Kalman] → +residual → [FFN] → +residual → 
+        x → [Jordan] → +residual → [Hopfield] → +residual → 
+        [Wiener] → +residual → [FFN] → +residual → 
         (if low confidence: [Attention Probe] → +residual)
         → output
     
     Args:
         d_model: Model dimension
-        state_dim: State size for Delta and Momentum layers
-        kalman_state_dim: State size for Kalman layer (typically smaller)
+        state_dim: State size for Hopfield and Jordan layers
+        wiener_state_dim: State size for Wiener Core (typically smaller)
         n_heads: Number of heads for all multi-head layers
         ffn_expand: FFN expansion factor
         probe_window: Attention probe window size
@@ -81,7 +87,7 @@ class SyntheBlock(nn.Module):
         self,
         d_model: int,
         state_dim: int = 128,
-        kalman_state_dim: int = 64,
+        wiener_state_dim: int = 64,
         n_heads: int = 4,
         ffn_expand: float = 2.67,
         probe_window: int = 256,
@@ -91,15 +97,15 @@ class SyntheBlock(nn.Module):
         super().__init__()
         self.d_model = d_model
 
-        # Layer primitives
-        self.momentum = MomentumLayer(
+        # Layer primitives (named after their intellectual lineage)
+        self.jordan = JordanLayer(
             d_model=d_model, state_dim=state_dim, n_heads=n_heads
         )
-        self.delta = DeltaLayer(
+        self.hopfield = HopfieldCore(
             d_model=d_model, state_dim=state_dim, n_heads=n_heads
         )
-        self.kalman = KalmanLayer(
-            d_model=d_model, state_dim=kalman_state_dim, n_heads=n_heads
+        self.wiener = WienerCore(
+            d_model=d_model, state_dim=wiener_state_dim, n_heads=n_heads
         )
         self.probe = AttentionProbe(
             d_model=d_model, window_size=probe_window,
@@ -115,9 +121,9 @@ class SyntheBlock(nn.Module):
 
     def init_state(self, batch_size: int, device: torch.device) -> BlockState:
         return BlockState(
-            momentum_state=self.momentum.init_state(batch_size, device),
-            delta_state=self.delta.init_state(batch_size, device),
-            kalman_state=self.kalman.init_state(batch_size, device),
+            jordan_state=self.jordan.init_state(batch_size, device),
+            hopfield_state=self.hopfield.init_state(batch_size, device),
+            wiener_state=self.wiener.init_state(batch_size, device),
             probe_state=self.probe.init_state(batch_size, device),
         )
 
@@ -138,26 +144,27 @@ class SyntheBlock(nn.Module):
         if state is None:
             state = self.init_state(B, x.device)
 
-        # === Momentum Layer ===
-        momentum_out, momentum_state = self.momentum(x, state.momentum_state)
-        x = x + self.dropout(momentum_out)
+        # === Jordan Layer (ex-Momentum) ===
+        jordan_out, jordan_state = self.jordan(x, state.jordan_state)
+        x = x + self.dropout(jordan_out)
 
-        # === Delta Layer ===
-        delta_out, delta_state = self.delta(x, state.delta_state)
-        x = x + self.dropout(delta_out)
+        # === Hopfield Core (ex-Delta) ===
+        hopfield_out, hopfield_state = self.hopfield(x, state.hopfield_state)
+        x = x + self.dropout(hopfield_out)
 
-        # === Kalman Layer ===
-        kalman_out, kalman_state = self.kalman(x, state.kalman_state)
-        x = x + self.dropout(kalman_out)
+        # === Wiener Core (ex-Kalman) ===
+        wiener_out, wiener_state = self.wiener(x, state.wiener_state)
+        x = x + self.dropout(wiener_out)
 
         # === FFN ===
         ffn_out = self.ffn(self.ffn_norm(x))
         x = x + self.dropout(ffn_out)
 
         # === Conditional Attention Probe ===
-        kalman_confidence = kalman_state.confidence  # (B,)
+        # Turing Gate signal: Wiener confidence drives probe activation
+        wiener_confidence = wiener_state.confidence  # (B,)
         probe_out, probe_state = self.probe(
-            x, state=state.probe_state, confidence=kalman_confidence
+            x, state=state.probe_state, confidence=wiener_confidence
         )
         x = x + probe_out  # probe_out is zero when not activated
 
@@ -168,16 +175,16 @@ class SyntheBlock(nn.Module):
             x = x * compute_budget.unsqueeze(-1)
 
         new_state = BlockState(
-            momentum_state=momentum_state,
-            delta_state=delta_state,
-            kalman_state=kalman_state,
+            jordan_state=jordan_state,
+            hopfield_state=hopfield_state,
+            wiener_state=wiener_state,
             probe_state=probe_state,
         )
 
         info = {
-            "kalman_confidence": kalman_confidence.mean().item(),
-            "delta_surprise": 1.0 - delta_state.confidence.mean().item(),
-            "probe_activated": (kalman_confidence < self.probe.confidence_threshold).float().mean().item(),
+            "wiener_confidence": wiener_confidence.mean().item(),
+            "hopfield_surprise": 1.0 - hopfield_state.confidence.mean().item(),
+            "probe_activated": (wiener_confidence < self.probe.confidence_threshold).float().mean().item(),
         }
 
         return x, new_state, info

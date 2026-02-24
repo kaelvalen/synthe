@@ -1,5 +1,9 @@
 """
-SYNTHE Kalman Layer — Uncertainty-Aware State Estimation
+SYNTHE Wiener Core — Uncertainty-Aware State Estimation
+
+Named after Norbert Wiener, father of cybernetics and statistical
+signal processing. Wiener's optimal filtering theory is the direct
+ancestor of the Kalman filter used here.
 
 Novel primitive: no existing sequence model tracks uncertainty.
 Uses diagonal Kalman filtering — each state dimension is independent,
@@ -19,7 +23,7 @@ The Kalman gain K_t is the key:
 This naturally implements "selective attention" — the state only updates
 when it's uncertain OR when the observation is trustworthy.
 
-Confidence signal is derived from the Innovation-to-Observation Ratio (IOR):
+Confidence signal (Turing Gate) is derived from the Innovation-to-Observation Ratio (IOR):
     - IOR = |z_t - μ_{t-1}| / |z_t|  (prediction error ÷ observation scale)
     - Pattern data → μ converges → IOR → 0 → HIGH confidence
     - Random/noise → μ can't predict → IOR ≈ 1+ → LOW confidence
@@ -61,14 +65,17 @@ def diagonal_kalman_step(
     return mu_new, sigma_new, K
 
 
-class KalmanLayer(SyntheLayer):
+class WienerCore(SyntheLayer):
     """
-    Diagonal Kalman filter as a sequence model layer.
+    Wiener Core — Diagonal Kalman filter as a sequence model layer.
+    
+    Named after Norbert Wiener: uncertainty-aware state estimation
+    rooted in cybernetics and optimal filtering theory.
     
     State: μ ∈ R^{state_dim}, σ² ∈ R^{state_dim}
     Per token: O(state_dim) — purely element-wise ops
     
-    The confidence output is directly derived from σ² — 
+    The confidence output (Turing Gate signal) is directly derived from σ² — 
     this drives SYNTHE's depth router and attention probe activation.
     
     Args:

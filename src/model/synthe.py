@@ -31,14 +31,14 @@ class SyntheConfig:
 
     # Layer config
     state_dim: int = 128
-    kalman_state_dim: int = 64
+    wiener_state_dim: int = 64  # ex-kalman_state_dim
     n_heads: int = 8
     ffn_expand: float = 2.67
 
-    # Memory hub
-    tier1_dim: int = 256
-    tier2_dim: int = 128
-    tier3_dim: int = 64
+    # Memory hub (Hebb / Elman / Shannon)
+    tier1_dim: int = 256     # Hebb Layer
+    tier2_dim: int = 128     # Elman Module
+    tier3_dim: int = 64      # Shannon Module
     tier2_interval: int = 16
     tier3_interval: int = 128
 
@@ -66,22 +66,22 @@ class SyntheConfig:
     @classmethod
     def tiny(cls) -> "SyntheConfig":
         """~15M params — for unit tests."""
-        return cls(d_model=256, n_blocks=4, n_heads=4, state_dim=64, kalman_state_dim=32)
+        return cls(d_model=256, n_blocks=4, n_heads=4, state_dim=64, wiener_state_dim=32)
 
     @classmethod
     def small_60m(cls) -> "SyntheConfig":
         """~60M params — for Zoology benchmarks on 5060."""
-        return cls(d_model=512, n_blocks=8, n_heads=8, state_dim=128, kalman_state_dim=64)
+        return cls(d_model=512, n_blocks=8, n_heads=8, state_dim=128, wiener_state_dim=64)
 
     @classmethod
     def medium_125m(cls) -> "SyntheConfig":
         """~125M params — for C4/SlimPajama pretraining."""
-        return cls(d_model=768, n_blocks=12, n_heads=12, state_dim=192, kalman_state_dim=64)
+        return cls(d_model=768, n_blocks=12, n_heads=12, state_dim=192, wiener_state_dim=64)
 
     @classmethod
     def large_350m(cls) -> "SyntheConfig":
         """~350M params — for full benchmark suite."""
-        return cls(d_model=1024, n_blocks=16, n_heads=16, state_dim=256, kalman_state_dim=96)
+        return cls(d_model=1024, n_blocks=16, n_heads=16, state_dim=256, wiener_state_dim=96)
 
 
 @dataclass
@@ -124,7 +124,7 @@ class Synthe(nn.Module):
             SyntheBlock(
                 d_model=config.d_model,
                 state_dim=config.state_dim,
-                kalman_state_dim=config.kalman_state_dim,
+                wiener_state_dim=config.wiener_state_dim,
                 n_heads=config.n_heads,
                 ffn_expand=config.ffn_expand,
                 probe_window=config.probe_window,
@@ -245,11 +245,11 @@ class Synthe(nn.Module):
         memory_confidence = self.memory_hub.get_confidence(state.memory_state)
 
         for i, block in enumerate(self.blocks):
-            # Routing decision
-            kalman_conf = state.block_states[i].kalman_state.confidence if i > 0 else None
+            # Routing decision (Turing Gate signal)
+            wiener_conf = state.block_states[i].wiener_state.confidence if i > 0 else None
             continue_mask, probe_mask, budget = self.router(
                 x, block_idx=i,
-                kalman_confidence=kalman_conf,
+                wiener_confidence=wiener_conf,
                 memory_confidence=memory_confidence,
             )
             compute_budgets.append(budget)
@@ -292,14 +292,14 @@ class Synthe(nn.Module):
 
         # === Info ===
         routing_stats = self.router.get_utilization(compute_budgets)
-        avg_confidence = sum(i["kalman_confidence"] for i in block_infos) / len(block_infos)
-        avg_surprise = sum(i["delta_surprise"] for i in block_infos) / len(block_infos)
+        avg_confidence = sum(i["wiener_confidence"] for i in block_infos) / len(block_infos)
+        avg_surprise = sum(i["hopfield_surprise"] for i in block_infos) / len(block_infos)
         avg_probe = sum(i["probe_activated"] for i in block_infos) / len(block_infos)
 
         result["info"] = {
             "routing": routing_stats,
-            "avg_kalman_confidence": avg_confidence,
-            "avg_delta_surprise": avg_surprise,
+            "avg_wiener_confidence": avg_confidence,
+            "avg_hopfield_surprise": avg_surprise,
             "avg_probe_activation": avg_probe,
             "num_params": self.num_params_str,
         }

@@ -1,5 +1,8 @@
 """
-SYNTHE Momentum Layer — Fast Temporal Pattern Capture
+SYNTHE Jordan Layer — Fast Temporal Pattern Capture
+
+Named after Michael I. Jordan, pioneer of recurrent neural networks
+and early architectures for temporal sequence processing.
 
 Gated exponential moving average with input-dependent decay.
 This is SYNTHE's "reflexes" — captures local syntax patterns,
@@ -24,9 +27,12 @@ from einops import rearrange
 from .base import SyntheLayer, LayerState
 
 
-class MomentumLayer(SyntheLayer):
+class JordanLayer(SyntheLayer):
     """
-    Gated EMA layer with multi-head parallel state tracking.
+    Jordan Layer — Gated EMA layer with multi-head parallel state tracking.
+    
+    Named after Michael I. Jordan: fast local pattern capture via
+    recurrent temporal processing.
     
     Fastest SYNTHE layer — pure element-wise ops, no matrix multiply
     in the recurrence. Ideal for local pattern capture.
@@ -143,9 +149,9 @@ class MomentumLayer(SyntheLayer):
         return output, new_state
 
 
-class ParallelMomentumLayer(MomentumLayer):
+class ParallelJordanLayer(JordanLayer):
     """
-    Momentum layer with parallel scan for training efficiency.
+    Jordan Layer with parallel scan for training efficiency.
     
     The gated EMA recurrence s_t = α_t * s_{t-1} + (1-α_t) * x_t
     can be computed via parallel prefix scan in O(T log T) work

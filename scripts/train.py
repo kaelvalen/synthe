@@ -237,7 +237,7 @@ def train(args):
             lr_now = scheduler.get_last_lr()[0]
             info = result.get("info", {})
             probe_act = info.get("avg_probe_activation", 0)
-            kalman_conf = info.get("avg_kalman_confidence", 0)
+            wiener_conf = info.get("avg_wiener_confidence", 0)
             routing = info.get("routing", {})
             exit_rate = routing.get("early_exit_rate", 0)
 
@@ -249,7 +249,7 @@ def train(args):
             print(
                 f"  step {step:>6d} | loss {loss_val:.4f} | "
                 f"lr {lr_now:.2e} | grad {grad_norm:.2f} | "
-                f"probe {probe_act:.0%} | conf {kalman_conf:.2f} | "
+                f"probe {probe_act:.0%} | conf {wiener_conf:.2f} | "
                 f"exit {exit_rate:.0%} | {tok_per_sec:,.0f} tok/s{gpu_info}"
             )
 
