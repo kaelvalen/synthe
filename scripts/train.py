@@ -87,10 +87,23 @@ def load_text(path: str) -> str:
 
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # CUDA optimizations
+    if device.type == "cuda":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+
     print(f"\n{'='*60}")
     print(f"  SYNTHE Training")
     print(f"{'='*60}")
-    print(f"  Device: {device}")
+    if device.type == "cuda":
+        free, total = torch.cuda.mem_get_info(0)
+        print(f"  Device: {torch.cuda.get_device_name(0)}")
+        print(f"  VRAM: {free/1e9:.1f}GB free / {total/1e9:.1f}GB total")
+        print(f"  TF32: enabled")
+    else:
+        print(f"  Device: {device}")
 
     # --- Data ---
     if args.data == "tinyshakespeare":
@@ -127,15 +140,24 @@ def train(args):
     if args.config:
         config = SyntheConfig.from_yaml(args.config)
     else:
-        config = SyntheConfig.tiny()
+        config = SyntheConfig.small_60m()
 
     # Override vocab for character-level
     config.vocab_size = dataset.vocab_size
     config.max_seq_len = args.seq_len
 
     model = Synthe(config).to(device)
-    print(f"  Model: {model.num_params_str} parameters")
+
+    # Compile for speed (PyTorch 2.x)
+    if args.compile and hasattr(torch, 'compile'):
+        print(f"  Compiling model with torch.compile...")
+        model = torch.compile(model)
+
+    print(f"  Model: {model.num_params_str if hasattr(model, 'num_params_str') else '?'} parameters")
     print(f"  Config: d={config.d_model}, blocks={config.n_blocks}, heads={config.n_heads}")
+    if device.type == "cuda":
+        allocated = torch.cuda.memory_allocated(0) / 1e9
+        print(f"  GPU memory (model+optim): ~{allocated:.1f}GB")
     print()
 
     # --- Optimizer ---
@@ -163,40 +185,55 @@ def train(args):
     log_interval = args.log_every
     eval_interval = args.eval_every
     start_time = time.time()
+    accum_steps = args.grad_accum
+    use_amp = device.type == "cuda" and args.amp
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
+    tokens_per_step = args.batch_size * args.seq_len * accum_steps
     print(f"  Training for {args.max_steps:,} steps...")
+    print(f"  Effective batch: {args.batch_size}×{accum_steps} = {args.batch_size * accum_steps} seqs")
+    print(f"  Tokens/step: {tokens_per_step:,}")
+    if use_amp:
+        print(f"  Mixed precision: BF16")
     print(f"  {'='*60}")
 
     while step < args.max_steps:
-        # Get batch
-        try:
-            x, y = next(train_iter)
-        except StopIteration:
-            train_iter = iter(train_loader)
-            x, y = next(train_iter)
-
-        x, y = x.to(device), y.to(device)
-
-        # Forward
-        result = model(x, targets=y)
-        loss = result["loss"]
-
-        # Backward
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        accum_loss = 0.0
 
-        # Gradient clipping
+        for micro in range(accum_steps):
+            # Get batch
+            try:
+                x, y = next(train_iter)
+            except StopIteration:
+                train_iter = iter(train_loader)
+                x, y = next(train_iter)
+
+            x, y = x.to(device), y.to(device)
+
+            # Forward with optional AMP
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
+                result = model(x, targets=y)
+                loss = result["loss"] / accum_steps
+
+            # Backward
+            scaler.scale(loss).backward()
+            accum_loss += loss.item()
+
+        # Gradient clipping + step
+        scaler.unscale_(optimizer)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
         scheduler.step()
 
+        loss_val = accum_loss  # already accumulated
         step += 1
 
         # --- Logging ---
         if step % log_interval == 0:
             elapsed = time.time() - start_time
-            tok_per_sec = (step * args.batch_size * args.seq_len) / elapsed
+            tok_per_sec = (step * tokens_per_step) / elapsed
             lr_now = scheduler.get_last_lr()[0]
             info = result.get("info", {})
             probe_act = info.get("avg_probe_activation", 0)
@@ -204,11 +241,16 @@ def train(args):
             routing = info.get("routing", {})
             exit_rate = routing.get("early_exit_rate", 0)
 
+            gpu_info = ""
+            if device.type == "cuda":
+                mem_gb = torch.cuda.memory_allocated(0) / 1e9
+                gpu_info = f" | gpu {mem_gb:.1f}GB"
+
             print(
-                f"  step {step:>6d} | loss {loss.item():.4f} | "
+                f"  step {step:>6d} | loss {loss_val:.4f} | "
                 f"lr {lr_now:.2e} | grad {grad_norm:.2f} | "
                 f"probe {probe_act:.0%} | conf {kalman_conf:.2f} | "
-                f"exit {exit_rate:.0%} | {tok_per_sec:,.0f} tok/s"
+                f"exit {exit_rate:.0%} | {tok_per_sec:,.0f} tok/s{gpu_info}"
             )
 
         # --- Evaluation ---
@@ -303,16 +345,23 @@ def parse_args():
                         help="'tinyshakespeare' or path to text file")
     parser.add_argument("--config", type=str, default=None,
                         help="Path to YAML config (default: tiny preset)")
-    parser.add_argument("--seq_len", type=int, default=256,
+    parser.add_argument("--seq_len", type=int, default=512,
                         help="Sequence length")
 
     # Training
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                        help="Gradient accumulation steps")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight_decay", type=float, default=0.1)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--max_steps", type=int, default=5000)
     parser.add_argument("--warmup_steps", type=int, default=200)
+    parser.add_argument("--amp", action="store_true", default=True,
+                        help="Use BF16 mixed precision")
+    parser.add_argument("--no-amp", dest="amp", action="store_false")
+    parser.add_argument("--compile", action="store_true", default=False,
+                        help="Use torch.compile (PyTorch 2.x)")
 
     # Logging
     parser.add_argument("--log_every", type=int, default=50)

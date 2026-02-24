@@ -159,7 +159,7 @@ class AttentionProbe(SyntheLayer):
                 active_idx = activate.nonzero(as_tuple=True)[0]
                 active_x = x[active_idx]
                 active_out = self._sliding_window_attention(active_x)
-                output[active_idx] = active_out
+                output[active_idx] = active_out.to(output.dtype)
         else:
             # No confidence signal — always compute
             output = self._sliding_window_attention(x)
